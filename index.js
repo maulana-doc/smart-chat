@@ -1,21 +1,32 @@
+// Import library yang dibutuhkan
 const express = require("express");
 const bodyParser = require("body-parser");
 const { Telegraf } = require("telegraf");
 
+// Inisialisasi server Express
 const app = express();
 app.use(bodyParser.json());
 
-// Bot Telegram Bapak
-const BOT_TOKEN = "8004132695:AAFs7RVKOgUnyP7O9KAA9eftR0J0jNhK6nA";
-const GROUP_CHAT_ID = -1002527354271;
+// Ambil token bot & ID grup dari environment variable Railway
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const GROUP_CHAT_ID = process.env.CHAT_ID ? parseInt(process.env.CHAT_ID) : null;
 
+// Validasi variabel lingkungan wajib
+if (!BOT_TOKEN || !GROUP_CHAT_ID) {
+  console.error("BOT_TOKEN dan CHAT_ID wajib diatur sebagai environment variable");
+  process.exit(1);
+}
+
+// Inisialisasi bot Telegram
 const bot = new Telegraf(BOT_TOKEN);
-let chatLog = [];
+let chatLog = []; // Penyimpanan chat sementara
 
-// Endpoint untuk menerima pesan dari login page
+// Endpoint POST: menerima pesan dari login page
 app.post("/send", async (req, res) => {
   const { nama, pesan } = req.body;
   if (!pesan || !nama) return res.status(400).send("Isi nama dan pesan");
+
+  // Format pesan yang dikirim ke grup Telegram
   const teks = `[Login Page] ${nama}:
 ${pesan}`;
   try {
@@ -28,12 +39,12 @@ ${pesan}`;
   }
 });
 
-// Endpoint polling pesan untuk ditampilkan di login page
+// Endpoint GET: polling untuk ambil balasan terbaru ke login page
 app.get("/poll", (req, res) => {
   res.json(chatLog.slice(-20));
 });
 
-// Bot mendengarkan balasan dari grup dan simpan
+// Bot menangkap semua balasan dari grup dan menyimpannya
 bot.on("text", async (ctx) => {
   if (ctx.chat.id === GROUP_CHAT_ID && ctx.message.text) {
     const dari = ctx.message.from.first_name || "Admin";
@@ -46,6 +57,7 @@ bot.on("text", async (ctx) => {
   }
 });
 
+// Jalankan bot dan server
 bot.launch();
 app.listen(process.env.PORT || 3000, () => {
   console.log("Smart Chat aktif di Railway...");
