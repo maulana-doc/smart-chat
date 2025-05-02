@@ -21,12 +21,11 @@ const bot = new Telegraf(BOT_TOKEN, {
 
 const chatLogPerUser = {};
 
-// Endpoint kirim pesan dari login page
+// Endpoint untuk kirim pesan dari login page
 app.post("/send", async (req, res) => {
   const { id, nama, pesan, sistem } = req.body;
   if (!id || !nama || !pesan) return res.status(400).send("Data tidak lengkap");
 
-  // Simpan ke memori
   if (!chatLogPerUser[id]) chatLogPerUser[id] = [];
   chatLogPerUser[id].push({
     dari: nama,
@@ -34,7 +33,6 @@ app.post("/send", async (req, res) => {
     waktu: new Date().toISOString()
   });
 
-  // Format kirim ke Telegram
   const teks = sistem
     ? `[AUTO] Info dari ${nama}:\n${pesan}`
     : `ChatID: ${id}\n${nama}:\n${pesan}`;
@@ -48,25 +46,31 @@ app.post("/send", async (req, res) => {
   }
 });
 
-// Endpoint polling untuk frontend
+// Endpoint polling
 app.get("/poll", (req, res) => {
   const id = req.query.id;
   if (!id || !chatLogPerUser[id]) return res.json([]);
   res.json(chatLogPerUser[id].slice(-30));
 });
 
-// Tangkap balasan dari grup Telegram
+// Balasan dari admin di grup
 bot.on("text", async (ctx) => {
-  if (ctx.chat.id != CHAT_ID) return;
-  const teks = ctx.message.text;
-  
-  // Tangkap ChatID (pakai format umum)
-  const match = teks.match(/ChatID[:：]?\s*(\d+)/i);
-  if (!match) return;
+  if (ctx.chat.id !== parseInt(CHAT_ID)) return;
 
-  const targetId = match[1];
+  let targetId = null;
+
+  // Jika membalas pesan (reply), ambil dari teks yang dibalas
+  if (ctx.message.reply_to_message) {
+    const teksAsli = ctx.message.reply_to_message.text;
+    const match = teksAsli.match(/ChatID:\s*(\d+)/);
+    if (match) targetId = match[1];
+  }
+
+  // Jika tidak reply atau gagal ambil ID → abaikan
+  if (!targetId) return;
+
   const namaAdmin = ctx.message.from.first_name || "Admin";
-  const isiPesan = teks.replace(/ChatID[:：]?\s*\d+/i, "").trim();
+  const isiPesan = ctx.message.text;
 
   if (!chatLogPerUser[targetId]) chatLogPerUser[targetId] = [];
   chatLogPerUser[targetId].push({
