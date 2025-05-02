@@ -1,6 +1,4 @@
-// Smart Chat Telegram — Versi Final Webhook
-// Kebutuhan: Chat dari login page → grup Telegram → dibalas bot/admin → tampil di login page
-
+// Versi Webhook: Chat Telegram Smart Solution (Per-User)
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -10,7 +8,6 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Token & Chat ID dari environment Railway
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 
@@ -19,23 +16,33 @@ if (!BOT_TOKEN || !CHAT_ID) {
   process.exit(1);
 }
 
-// Bot utama (Hotspot-admin-bot)
 const bot = new Telegraf(BOT_TOKEN, {
-  telegram: { webhookReply: false }
+  telegram: { webhookReply: false },
 });
 
-let chatLog = [];
+const chatLog = {}; // { userID: [ { dari, teks, waktu } ] }
 
-// Endpoint kirim pesan dari login page ke grup Telegram
+// Endpoint kirim pesan dari login page
 app.post("/send", async (req, res) => {
-  const { nama, pesan } = req.body;
-  if (!nama || !pesan) return res.status(400).send("Nama dan pesan wajib diisi");
+  const { nama, pesan, id, sistem } = req.body;
 
-  const teks = `[Login Page] ${nama}:
-${pesan}`;
+  if (!id || !pesan) return res.status(400).send("Data tidak lengkap");
+
+  const teks = sistem
+    ? `[SYSTEM][${id}]\n${pesan}`
+    : `[${id}] ${nama}:\n${pesan}`;
+
   try {
-    await bot.telegram.sendMessage(Number(CHAT_ID), teks);
-    chatLog.push({ dari: nama, teks: pesan, waktu: new Date().toISOString() });
+    if (!chatLog[id]) chatLog[id] = [];
+    await bot.telegram.sendMessage(CHAT_ID, teks);
+
+    chatLog[id].push({
+      dari: nama,
+      teks: pesan,
+      waktu: new Date().toISOString(),
+      sistem: !!sistem,
+    });
+
     res.send("Pesan terkirim");
   } catch (err) {
     console.error("Gagal kirim:", err.message);
@@ -43,35 +50,34 @@ ${pesan}`;
   }
 });
 
-// Endpoint polling untuk login page ambil chat terakhir
+// Endpoint polling (khusus user)
 app.get("/poll", (req, res) => {
-  res.json(chatLog.slice(-20));
+  const id = req.query.id;
+  if (!id) return res.status(400).send("ID tidak ditemukan");
+  res.json((chatLog[id] || []).slice(-20));
 });
 
-// Mencatat balasan admin/bot dari grup Telegram
-bot.on("message", async (ctx) => {
-  try {
-    // Hanya ambil pesan teks dari grup target
-    if (
-      ctx.chat &&
-      Number(ctx.chat.id) === Number(CHAT_ID) &&
-      ctx.message &&
-      ctx.message.text &&
-      !ctx.message.from.is_bot // hindari loop dari bot sendiri
-    ) {
-      const dari = ctx.message.from.first_name || "Admin";
-      const teks = ctx.message.text;
-      chatLog.push({ dari, teks, waktu: new Date().toISOString() });
-    }
-  } catch (err) {
-    console.error("Gagal menyimpan balasan:", err.message);
+// Bot membaca balasan admin (reply di Telegram group)
+bot.on("text", (ctx) => {
+  const text = ctx.message.text;
+  const from = ctx.message.from.first_name || "Admin";
+
+  const match = text.match(/(\d{5,})/);
+  const userID = match ? match[1] : null;
+
+  if (userID && chatLog[userID]) {
+    chatLog[userID].push({
+      dari: from,
+      teks: text.replace(`[${userID}]`, '').trim(),
+      waktu: new Date().toISOString(),
+    });
   }
 });
 
 // Webhook
 app.use(bot.webhookCallback("/webhook"));
+bot.telegram.setWebhook(process.env.WEBHOOK_URL + "/webhook");
 
-// Cek status bot
 app.get("/", (req, res) => res.send("Smart Chat aktif dengan Webhook..."));
 
 const PORT = process.env.PORT || 3000;
