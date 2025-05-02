@@ -43,7 +43,7 @@ app.get("/poll", (req, res) => {
 });
 
 // Simpan pesan masuk dari Telegram Group
-bot.on("text", async (ctx) => {
+bot.on("message", async (ctx) => {
   if (ctx.chat && ctx.chat.id == CHAT_ID && ctx.message.text) {
     chatLog.push({ dari: ctx.message.from.first_name || "Admin", teks: ctx.message.text, waktu: new Date().toISOString() });
   }
