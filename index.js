@@ -1,13 +1,14 @@
-// Versi Webhook: Smart Chat untuk Railway
+// Versi Webhook 
 const express = require("express");
 const bodyParser = require("body-parser");
-const cors = require("cors"); // ← TAMBAHKAN INI
+const cors = require("cors");
 const { Telegraf } = require("telegraf");
 
 const app = express();
-app.use(cors()); // ← DAN INI
+app.use(cors());
 app.use(bodyParser.json());
 
+// Ambil dari Railway environment variable
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 
@@ -16,10 +17,13 @@ if (!BOT_TOKEN || !CHAT_ID) {
   process.exit(1);
 }
 
-const bot = new Telegraf(BOT_TOKEN);
+// Tambahkan opsi webhookReply: false agar proses tidak error di Railway
+const bot = new Telegraf(BOT_TOKEN, {
+  telegram: { webhookReply: false }
+});
 let chatLog = [];
 
-// Endpoint kirim dari login page
+// Endpoint kirim pesan dari login page
 app.post("/send", async (req, res) => {
   const { nama, pesan } = req.body;
   const teks = `[Login Page] ${nama}: ${pesan}`;
@@ -33,22 +37,22 @@ app.post("/send", async (req, res) => {
   }
 });
 
-// Endpoint polling dari login page
+// Endpoint polling (untuk menampilkan chat di login page)
 app.get("/poll", (req, res) => {
   res.json(chatLog.slice(-20));
 });
 
-// Balasan dari grup
+// Simpan pesan masuk dari Telegram Group
 bot.on("text", async (ctx) => {
   if (ctx.chat && ctx.chat.id == CHAT_ID && ctx.message.text) {
     chatLog.push({ dari: ctx.message.from.first_name || "Admin", teks: ctx.message.text, waktu: new Date().toISOString() });
   }
 });
 
-// Setup webhook
+// Pasang webhook dari Railway otomatis
 app.use(bot.webhookCallback("/webhook"));
-bot.telegram.setWebhook(process.env.WEBHOOK_URL + "/webhook");
 
+// Cek koneksi di root URL
 app.get("/", (req, res) => res.send("Smart Chat aktif dengan Webhook..."));
 
 const PORT = process.env.PORT || 3000;
