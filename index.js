@@ -9,9 +9,10 @@ app.use(bodyParser.json());
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
-if (!BOT_TOKEN || !CHAT_ID) {
-  console.error("BOT_TOKEN dan CHAT_ID wajib diatur sebagai environment variable");
+if (!BOT_TOKEN || !CHAT_ID || !WEBHOOK_URL) {
+  console.error("BOT_TOKEN, CHAT_ID, dan WEBHOOK_URL wajib diatur sebagai environment variable");
   process.exit(1);
 }
 
@@ -19,13 +20,15 @@ const bot = new Telegraf(BOT_TOKEN, {
   telegram: { webhookReply: false }
 });
 
+// Penyimpanan per-user
 const chatLogPerUser = {};
 
-// Endpoint untuk kirim pesan dari login page
+// Kirim pesan dari login page ke Telegram
 app.post("/send", async (req, res) => {
   const { id, nama, pesan, sistem } = req.body;
   if (!id || !nama || !pesan) return res.status(400).send("Data tidak lengkap");
 
+  // Simpan pesan di memori
   if (!chatLogPerUser[id]) chatLogPerUser[id] = [];
   chatLogPerUser[id].push({
     dari: nama,
@@ -33,9 +36,10 @@ app.post("/send", async (req, res) => {
     waktu: new Date().toISOString()
   });
 
+  // Format untuk Telegram
   const teks = sistem
     ? `[AUTO] Info dari ${nama}:\n${pesan}`
-    : `ChatID: ${id}\n${nama}:\n${pesan}`;
+    : `💬 ChatID: ${id}\n${nama}:\n${pesan}`;
 
   try {
     await bot.telegram.sendMessage(CHAT_ID, teks);
@@ -46,42 +50,41 @@ app.post("/send", async (req, res) => {
   }
 });
 
-// Endpoint polling
+// Ambil chat berdasarkan ID pengguna
 app.get("/poll", (req, res) => {
   const id = req.query.id;
   if (!id || !chatLogPerUser[id]) return res.json([]);
   res.json(chatLogPerUser[id].slice(-30));
 });
 
-// Balasan dari admin di grup
+// Deteksi balasan admin (berisi ChatID)
 bot.on("text", async (ctx) => {
-  if (ctx.chat.id !== parseInt(CHAT_ID)) return;
+  if (ctx.chat.id != CHAT_ID) return;
 
-  let targetId = null;
+  const pesan = ctx.message.text;
+  const regex = /ChatID:\s*(\d+)/i;
+  const match = pesan.match(regex);
+  if (!match) return;
 
-  // Jika membalas pesan (reply), ambil dari teks yang dibalas
-  if (ctx.message.reply_to_message) {
-    const teksAsli = ctx.message.reply_to_message.text;
-    const match = teksAsli.match(/ChatID:\s*(\d+)/);
-    if (match) targetId = match[1];
-  }
+  const userId = match[1];
+  const balasan = pesan.replace(regex, "").trim();
+  const dari = ctx.message.from.first_name || "Admin";
 
-  // Jika tidak reply atau gagal ambil ID → abaikan
-  if (!targetId) return;
-
-  const namaAdmin = ctx.message.from.first_name || "Admin";
-  const isiPesan = ctx.message.text;
-
-  if (!chatLogPerUser[targetId]) chatLogPerUser[targetId] = [];
-  chatLogPerUser[targetId].push({
-    dari: namaAdmin,
-    teks: isiPesan,
+  if (!chatLogPerUser[userId]) chatLogPerUser[userId] = [];
+  chatLogPerUser[userId].push({
+    dari,
+    teks: balasan,
     waktu: new Date().toISOString()
   });
 });
 
+// Jalankan webhook
 app.use(bot.webhookCallback("/webhook"));
-bot.telegram.setWebhook(process.env.WEBHOOK_URL + "/webhook");
+const fullWebhook = `${WEBHOOK_URL}/webhook`;
+
+bot.telegram.setWebhook(fullWebhook)
+  .then(() => console.log("Webhook diatur ke:", fullWebhook))
+  .catch((err) => console.error("Gagal set webhook:", err.message));
 
 app.get("/", (req, res) => res.send("Smart Chat aktif dengan Webhook..."));
 
