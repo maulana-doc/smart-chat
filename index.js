@@ -1,9 +1,11 @@
 // Versi Webhook: Smart Chat untuk Railway
 const express = require("express");
 const bodyParser = require("body-parser");
+const cors = require("cors"); // ← TAMBAHKAN INI
 const { Telegraf } = require("telegraf");
 
 const app = express();
+app.use(cors()); // ← DAN INI
 app.use(bodyParser.json());
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
