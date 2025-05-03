@@ -1,6 +1,3 @@
-// Smart Chat Telegram — Versi Final Webhook
-// Kebutuhan: Chat dari login page → grup Telegram → dibalas bot/admin → tampil di login page
-
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -10,29 +7,26 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Token & Chat ID dari environment Railway
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
 
 if (!BOT_TOKEN || !CHAT_ID) {
-  console.error("BOT_TOKEN dan CHAT_ID wajib diatur sebagai environment variable");
+  console.error("BOT_TOKEN dan CHAT_ID wajib diatur");
   process.exit(1);
 }
 
-// Bot utama (Hotspot-admin-bot)
 const bot = new Telegraf(BOT_TOKEN, {
   telegram: { webhookReply: false }
 });
 
 let chatLog = [];
 
-// Endpoint kirim pesan dari login page ke grup Telegram
+// Kirim pesan dari pengguna ke grup Telegram
 app.post("/send", async (req, res) => {
   const { nama, pesan } = req.body;
   if (!nama || !pesan) return res.status(400).send("Nama dan pesan wajib diisi");
 
-  const teks = `[Login Page] ${nama}:
-${pesan}`;
+  const teks = `[Login Page] ${nama}:\n${pesan}`;
   try {
     await bot.telegram.sendMessage(Number(CHAT_ID), teks);
     chatLog.push({ dari: nama, teks: pesan, waktu: new Date().toISOString() });
@@ -43,21 +37,33 @@ ${pesan}`;
   }
 });
 
-// Endpoint polling untuk login page ambil chat terakhir
+// Terima polling chat untuk ditampilkan ke pengguna
 app.get("/poll", (req, res) => {
   res.json(chatLog.slice(-20));
 });
 
-// Mencatat balasan admin/bot dari grup Telegram
+// Terima info awal pengguna (MAC, IP, dll)
+app.post("/info", async (req, res) => {
+  const { mac, ip, userAgent } = req.body;
+  const teks = `[Login Info Detected]\nIP: ${ip}\nMAC: ${mac}\nUser-Agent: ${userAgent}`;
+  try {
+    await bot.telegram.sendMessage(Number(CHAT_ID), teks);
+    res.send("Info terkirim");
+  } catch (err) {
+    console.error("Gagal kirim info:", err.message);
+    res.status(500).send("Gagal mengirim info");
+  }
+});
+
+// Catat balasan admin dari Telegram
 bot.on("message", async (ctx) => {
   try {
-    // Hanya ambil pesan teks dari grup target
     if (
       ctx.chat &&
       Number(ctx.chat.id) === Number(CHAT_ID) &&
       ctx.message &&
       ctx.message.text &&
-      !ctx.message.from.is_bot // hindari loop dari bot sendiri
+      !ctx.message.from.is_bot
     ) {
       const dari = ctx.message.from.first_name || "Admin";
       const teks = ctx.message.text;
@@ -68,13 +74,33 @@ bot.on("message", async (ctx) => {
   }
 });
 
-// Webhook
 app.use(bot.webhookCallback("/webhook"));
 
-// Cek status bot
-app.get("/", (req, res) => res.send("Smart Chat aktif dengan Webhook..."));
+app.get("/", (req, res) => res.send("Smart Chat aktif..."));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Smart Chat webhook aktif di port", PORT);
+  console.log("Smart Chat aktif di port", PORT);
+});
+
+// Hanya bagian tambahan pada endpoint /send
+app.post("/send", async (req, res) => {
+  const { nama, pesan, sistem } = req.body;
+
+  if (!nama || !pesan) return res.status(400).send("Nama dan pesan wajib diisi");
+
+  const teks = sistem
+    ? `[Sistem Info Login Page]\n${pesan}`
+    : `[Login Page] ${nama}:\n${pesan}`;
+
+  try {
+    await bot.telegram.sendMessage(Number(CHAT_ID), teks);
+    if (!sistem) {
+      chatLog.push({ dari: nama, teks: pesan, waktu: new Date().toISOString() });
+    }
+    res.send("Pesan terkirim");
+  } catch (err) {
+    console.error("Gagal kirim:", err.message);
+    res.status(500).send("Gagal mengirim");
+  }
 });
