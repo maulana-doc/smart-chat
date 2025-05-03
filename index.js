@@ -1,3 +1,4 @@
+// Versi Webhook: Chat Telegram Smart Solution (Per-User)
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -9,82 +10,73 @@ app.use(bodyParser.json());
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHAT_ID = process.env.CHAT_ID;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
 
-if (!BOT_TOKEN || !CHAT_ID || !WEBHOOK_URL) {
-  console.error("BOT_TOKEN, CHAT_ID, dan WEBHOOK_URL wajib diatur sebagai environment variable");
+if (!BOT_TOKEN || !CHAT_ID) {
+  console.error("BOT_TOKEN dan CHAT_ID wajib diatur sebagai environment variable");
   process.exit(1);
 }
 
 const bot = new Telegraf(BOT_TOKEN, {
-  telegram: { webhookReply: false }
+  telegram: { webhookReply: false },
 });
 
-// Penyimpanan per-user
-const chatLogPerUser = {};
+const chatLog = {}; // { userID: [ { dari, teks, waktu } ] }
 
-// Kirim pesan dari login page ke Telegram
+// Endpoint kirim pesan dari login page
 app.post("/send", async (req, res) => {
-  const { id, nama, pesan, sistem } = req.body;
-  if (!id || !nama || !pesan) return res.status(400).send("Data tidak lengkap");
+  const { nama, pesan, id, sistem } = req.body;
 
-  // Simpan pesan di memori
-  if (!chatLogPerUser[id]) chatLogPerUser[id] = [];
-  chatLogPerUser[id].push({
-    dari: nama,
-    teks: pesan,
-    waktu: new Date().toISOString()
-  });
+  if (!id || !pesan) return res.status(400).send("Data tidak lengkap");
 
-  // Format untuk Telegram
   const teks = sistem
-    ? `[AUTO] Info dari ${nama}:\n${pesan}`
-    : `💬 ChatID: ${id}\n${nama}:\n${pesan}`;
+    ? `[SYSTEM][${id}]\n${pesan}`
+    : `[${id}] ${nama}:\n${pesan}`;
 
   try {
+    if (!chatLog[id]) chatLog[id] = [];
     await bot.telegram.sendMessage(CHAT_ID, teks);
+
+    chatLog[id].push({
+      dari: nama,
+      teks: pesan,
+      waktu: new Date().toISOString(),
+      sistem: !!sistem,
+    });
+
     res.send("Pesan terkirim");
   } catch (err) {
-    console.error("Gagal kirim ke Telegram:", err.message);
+    console.error("Gagal kirim:", err.message);
     res.status(500).send("Gagal mengirim");
   }
 });
 
-// Ambil chat berdasarkan ID pengguna
+// Endpoint polling (khusus user)
 app.get("/poll", (req, res) => {
   const id = req.query.id;
-  if (!id || !chatLogPerUser[id]) return res.json([]);
-  res.json(chatLogPerUser[id].slice(-30));
+  if (!id) return res.status(400).send("ID tidak ditemukan");
+  res.json((chatLog[id] || []).slice(-20));
 });
 
-// Deteksi balasan admin (berisi ChatID)
-bot.on("text", async (ctx) => {
-  if (ctx.chat.id != CHAT_ID) return;
+// Bot membaca balasan admin (reply di Telegram group)
+bot.on("text", (ctx) => {
+  const text = ctx.message.text;
+  const from = ctx.message.from.first_name || "Admin";
 
-  const pesan = ctx.message.text;
-  const regex = /ChatID:\s*(\d+)/i;
-  const match = pesan.match(regex);
-  if (!match) return;
+  const match = text.match(/(\d{5,})/);
+  const userID = match ? match[1] : null;
 
-  const userId = match[1];
-  const balasan = pesan.replace(regex, "").trim();
-  const dari = ctx.message.from.first_name || "Admin";
-
-  if (!chatLogPerUser[userId]) chatLogPerUser[userId] = [];
-  chatLogPerUser[userId].push({
-    dari,
-    teks: balasan,
-    waktu: new Date().toISOString()
-  });
+  if (userID && chatLog[userID]) {
+    chatLog[userID].push({
+      dari: from,
+      teks: text.replace(`[${userID}]`, '').trim(),
+      waktu: new Date().toISOString(),
+    });
+  }
 });
 
-// Jalankan webhook
+// Webhook
 app.use(bot.webhookCallback("/webhook"));
-const fullWebhook = `${WEBHOOK_URL}/webhook`;
-
-bot.telegram.setWebhook(fullWebhook)
-  .then(() => console.log("Webhook diatur ke:", fullWebhook))
-  .catch((err) => console.error("Gagal set webhook:", err.message));
+bot.telegram.setWebhook(process.env.WEBHOOK_URL + "/webhook");
 
 app.get("/", (req, res) => res.send("Smart Chat aktif dengan Webhook..."));
 
